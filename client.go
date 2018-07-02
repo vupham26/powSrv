@@ -207,8 +207,12 @@ func (p PowClient) GetPowInfo() (ServerVersion string, PowType string, PowVersio
 }
 
 // PowFunc does the POW
-func (p PowClient) PowFunc(trytes giota.Trytes, minWeightMagnitude byte) (result giota.Trytes, Error error) {
-	data := []byte{minWeightMagnitude}
+func (p PowClient) PowFunc(trytes giota.Trytes, minWeightMagnitude int) (result giota.Trytes, Error error) {
+	if (minWeightMagnitude < 0) || (minWeightMagnitude > 243) {
+		return "", fmt.Errorf("minWeightMagnitude out of range [0-243]: %v", minWeightMagnitude)
+	}
+
+	data := []byte{byte(minWeightMagnitude)}
 	data = append(data, []byte(string(trytes))...)
 
 	response, err := p.sendIpcFrameV1ToServer(IpcCmdPowFunc, data)
