@@ -17,12 +17,7 @@ var transaction = "9999999999999999999999999999999999999999999999999999999999999
 
 func TestPOW(t *testing.T) {
 	powClient := &PowClient{PowSrvPath: socketPath, WriteTimeOutMs: 500, ReadTimeOutMs: 5000}
-/*	err := powClient.InitPow()
-	if err != nil {
-		t.Error(err)
-		return
-	}
-*/
+
 	serverVersion, powType, powVersion, err := powClient.GetPowInfo()
 	if err != nil {
 		t.Error(err)

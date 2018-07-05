@@ -10,6 +10,7 @@ import (
 	"github.com/iotaledger/giota"
 	"github.com/lunixbochs/struc"
 	"github.com/sigurn/crc8"
+	"github.com/spf13/viper"
 )
 
 const (
@@ -26,8 +27,7 @@ const (
 	IpcCmdGetServerVersion = 0x04 // C => S: Get the version of this application
 	IpcCmdGetPowType       = 0x05 // C => S: Get the name of the used POW implementation (e.g. PiDiver)
 	IpcCmdGetPowVersion    = 0x06 // C => S: Get the version of the used POW implementation (e.g. PiDiver FPGA Core Version)
-//	IpcCmdInitPOW          = 0x07 // C => S: Init POW
-	IpcCmdPowFunc          = 0x08 // C => S: Do POW
+	IpcCmdPowFunc          = 0x07 // C => S: Do POW
 
 	powSrvVersion = "0.1.0"
 )
@@ -35,7 +35,6 @@ const (
 var crc8Table = crc8.MakeTable(crc8.CRC8_MAXIM)
 var powMutex = &sync.Mutex{}
 var powFuncPtr giota.PowFunc
-
 
 /*
 	Interprocess communication protocol
@@ -70,8 +69,7 @@ var powFuncPtr giota.PowFunc
 			IpcCmdGetServerVersion = 0x04 // C => S: Get the version of this application
 			IpcCmdGetPowType       = 0x05 // C => S: Get the name of the used POW implementation (e.g. PiDiver)
 			IpcCmdGetPowVersion    = 0x06 // C => S: Get the version of the used POW implementation (e.g. PiDiver FPGA Core Version)
-			IpcCmdInitPOW          = 0x07 // C => S: Init POW
-			IpcCmdPowFunc          = 0x08 // C => S: Do POW
+			IpcCmdPowFunc          = 0x07 // C => S: Do POW
 
 		DATA_LENGTH:
 			Size of the DATA
@@ -96,9 +94,6 @@ var powFuncPtr giota.PowFunc
 
 			----- IPC_CMD==IpcCmdGetPowVersion -----
 			[8..8+DATA_LENGTH] 	String	PowVersion
-
-			----- IPC_CMD==IpcCmdInitPOW -----
-			[]
 
 			----- IPC_CMD==IpcCmdPowFunc ----
 			[8..8+DATA_LENGTH] 	Trytes POW result
@@ -204,8 +199,9 @@ func sendToClient(c net.Conn, responseMsg *IpcMessage) (err error) {
 	return err
 }
 
+// SetPowFunc sets the function pointer for POW
 func SetPowFunc(f giota.PowFunc) {
-    powFuncPtr = f
+	powFuncPtr = f
 }
 
 // powFunc calls the hardware POW secured by a Mutex
@@ -213,14 +209,16 @@ func powFunc(trytes giota.Trytes, mwm int) (giota.Trytes, error) {
 	powMutex.Lock()
 	defer powMutex.Unlock()
 
-	//fmt.Printf("Start POW! Weight: %v\n", mwm)
+	if powFuncPtr == nil {
+		return "", errors.New("powFunc not initialized")
+	}
+
 	result, err := powFuncPtr(trytes, mwm)
-	//result, err := "ABCDEFGHIJKLMNOPQRSTUVWXYZ", err
 	return result, err
 }
 
 // HandleClientConnection handles the communication to the client until the socket is closed
-func HandleClientConnection(c net.Conn) {
+func HandleClientConnection(c net.Conn, config *viper.Viper) {
 	frameState := FrameStateSearchEnq
 	frameLength := 0
 	var frameData []byte
@@ -314,30 +312,15 @@ func HandleClientConnection(c net.Conn) {
 						responseMsg, _ := NewIpcMessageV1(frame.ReqID, IpcCmdResponse, []byte("Not implemented"))
 						sendToClient(c, responseMsg)
 
-/* better to this in main
-					case IpcCmdInitPOW:
-						if !piDiverInitialized {
-							err = pidiver.InitPiDiver()
-							if err != nil {
-								responseMsg, _ := NewIpcMessageV1(frame.ReqID, IpcCmdError, []byte(err.Error()))
-								sendToClient(c, responseMsg)
-								frameState = FrameStateSearchEnq
-								break
-							}
-							piDiverInitialized = true
-						}
-						responseMsg, _ := NewIpcMessageV1(frame.ReqID, IpcCmdResponse, []byte("PiDiver initialized successfully"))
-						sendToClient(c, responseMsg)
-*/
 					case IpcCmdPowFunc:
-/*						if !piDiverInitialized {
-							responseMsg, _ := NewIpcMessageV1(frame.ReqID, IpcCmdError, []byte("PiDiver not initialized"))
+						mwm := int(frame.Data[0])
+
+						if mwm > config.GetInt("pow.maxMinWeightMagnitude") {
+							responseMsg, _ := NewIpcMessageV1(frame.ReqID, IpcCmdError, []byte(fmt.Sprintf("MinWeightMagnitude too high. MWM: %v Allowed: %v", mwm, config.GetInt("pow.maxMinWeightMagnitude"))))
 							sendToClient(c, responseMsg)
 							frameState = FrameStateSearchEnq
 							break
 						}
-*/
-						mwm := int(frame.Data[0])
 
 						trytes, err := giota.ToTrytes(string(frame.Data[1:]))
 						if err != nil {
@@ -348,7 +331,6 @@ func HandleClientConnection(c net.Conn) {
 						}
 
 						result, err := powFunc(trytes, mwm)
-
 						if err != nil {
 							responseMsg, _ := NewIpcMessageV1(frame.ReqID, IpcCmdError, []byte(err.Error()))
 							sendToClient(c, responseMsg)

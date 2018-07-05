@@ -175,17 +175,7 @@ func (p PowClient) sendIpcFrameV1ToServer(command byte, data []byte) (response [
 		return nil, fmt.Errorf("Unknown command! Cmd: %X", frame.Command)
 	}
 }
-/* do this in main of server
-// InitPow initializes the POW hardware
-func (p PowClient) InitPow() error {
-	_, err := p.sendIpcFrameV1ToServer(IpcCmdInitPOW, nil)
-	if err != nil {
-		return err
-	}
 
-	return nil
-}
-*/
 // GetPowInfo returns information about the powSrv version, POW hardware type, and POW hardware version
 func (p PowClient) GetPowInfo() (ServerVersion string, PowType string, PowVersion string, Error error) {
 	serverVersion, err := p.sendIpcFrameV1ToServer(IpcCmdGetServerVersion, nil)
