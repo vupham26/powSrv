@@ -12,7 +12,7 @@ import (
 	"syscall"
 
 	"github.com/iotaledger/giota"
-	"github.com/muXxer/powsrv"
+	"github.com/muxxer/powsrv"
 	"github.com/shufps/pidiver/pidiver"
 	flag "github.com/spf13/pflag"
 	"github.com/spf13/viper"
