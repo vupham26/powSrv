@@ -218,7 +218,7 @@ func powFunc(trytes giota.Trytes, mwm int) (giota.Trytes, error) {
 }
 
 // HandleClientConnection handles the communication to the client until the socket is closed
-func HandleClientConnection(c net.Conn, config *viper.Viper) {
+func HandleClientConnection(c net.Conn, config *viper.Viper, powType string, powVersion string) {
 	frameState := FrameStateSearchEnq
 	frameLength := 0
 	var frameData []byte
@@ -301,15 +301,11 @@ func HandleClientConnection(c net.Conn, config *viper.Viper) {
 						sendToClient(c, responseMsg)
 
 					case IpcCmdGetPowType:
-						responseMsg, _ := NewIpcMessageV1(frame.ReqID, IpcCmdResponse, []byte("PiDiver"))
+						responseMsg, _ := NewIpcMessageV1(frame.ReqID, IpcCmdResponse, []byte(powType))
 						sendToClient(c, responseMsg)
 
 					case IpcCmdGetPowVersion:
-						//powMutex.Lock()
-						//result, err := pidiver.GetFPGAVersion()
-						//powMutex.Unlock()
-
-						responseMsg, _ := NewIpcMessageV1(frame.ReqID, IpcCmdResponse, []byte("Not implemented"))
+						responseMsg, _ := NewIpcMessageV1(frame.ReqID, IpcCmdResponse, []byte(powVersion))
 						sendToClient(c, responseMsg)
 
 					case IpcCmdPowFunc:

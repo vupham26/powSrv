@@ -87,27 +87,33 @@ func main() {
 
 	var powFunc giota.PowFunc
 	var powType string
+	var powVersion string
 
 	switch strings.ToLower(config.GetString("pow.type")) {
 
 	case "giota":
 		powType, powFunc = giota.GetBestPoW()
+		powVersion = ""
 
 	case "giota-go":
 		powFunc = giota.PowGo
 		powType = "gIOTA-Go"
+		powVersion = ""
 
 	case "giota-c":
 		powFunc = giota.PowC
 		powType = "gIOTA-PowC"
+		powVersion = ""
 
 	case "giota-c128":
 		powFunc = giota.PowC128
 		powType = "gIOTA-PowC128"
+		powVersion = ""
 
 	case "giota-sse":
 		powFunc = giota.PowSSE
 		powType = "gIOTA-PowSSE"
+		powVersion = ""
 
 	case "pidiver":
 		piconfig := pidiver.PiDiverConfig{
@@ -121,7 +127,13 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-
+		powVersion = "not implemented yet"
+		/*
+			powVersion, err := pidiver.GetFPGAVersion()
+			if err != nil {
+				log.Fatal(err)
+			}
+		*/
 		powFunc = pidiver.PowPiDiver
 		powType = "PiDiver"
 
@@ -137,13 +149,26 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-
+		powVersion = "not implemented yet"
+		/*
+			powVersion, err := pidiver.GetFPGAVersion()
+			if err != nil {
+				log.Fatal(err)
+			}
+		*/
 		powFunc = pidiver.PowUSBDiver
 		powType = "USBDiver"
 
 	case "cyc1000":
 		log.Fatal(errors.New("cyc1000 not implemented yet"))
 		powType = "CYC1000"
+		powVersion = "not implemented yet"
+		/*
+			powVersion, err := pidiver.GetFPGAVersion()
+			if err != nil {
+				log.Fatal(err)
+			}
+		*/
 
 	default:
 		log.Fatal(errors.New("Unknown POW type"))
@@ -180,6 +205,6 @@ func main() {
 			continue
 		}
 
-		go powsrv.HandleClientConnection(fd, config)
+		go powsrv.HandleClientConnection(fd, config, powType, powVersion)
 	}
 }
