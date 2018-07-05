@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net"
 	"os"
@@ -36,19 +37,22 @@ func loadConfig() *viper.Viper {
 
 	// Get command line arguments
 	// The flag package provides a default help printer via -h switch
-	flag.String("fpga.core", "pidiver1.1.rbf", "Core/config file to upload to FPGA")
+	flag.StringP("fpga.core", "f", "pidiver1.1.rbf", "Core/config file to upload to FPGA")
 	flag.StringP("usb.device", "d", "/dev/ttyACM0", "Device file for usb communication")
 
 	flag.StringP("pow.type", "t", "giota", "'giota', 'giota-go', giota-c', 'giota-c128', 'giota-sse', 'pidiver', 'usbdiver' or 'cyc1000'")
-	flag.IntP("pow.maxMinWeightMagnitude", "mwm", 20, "Maximum Min-Weight-Magnitude (Difficulty for PoW)")
+	flag.IntP("pow.maxMinWeightMagnitude", "m", 20, "Maximum Min-Weight-Magnitude (Difficulty for PoW)")
 
-	flag.StringP("log.level", "ll", "INFO", "'DEBUG', 'INFO', 'NOTICE', 'WARNING', 'ERROR' or 'CRITICAL'")
+	var logLevel = flag.StringP("log.level", "l", "INFO", "'DEBUG', 'INFO', 'NOTICE', 'WARNING', 'ERROR' or 'CRITICAL'")
 
-	flag.StringP("config", "c", "", "Config file path")
-	flag.StringP("socket-path", "s", "/tmp/powSrv.sock", "Unix socket path of powSrv")
+	flag.StringP("server.socketPath", "s", "/tmp/powSrv.sock", "Unix socket path of powSrv")
 
-	flag.Parse()
 	config.BindPFlags(flag.CommandLine)
+
+	var configPath = flag.StringP("config", "c", "", "Config file path")
+	flag.Parse()
+
+	logs.SetLogLevel(*logLevel)
 
 	// Bind environment vars
 	replacer := strings.NewReplacer(".", "_")
@@ -57,13 +61,12 @@ func loadConfig() *viper.Viper {
 	config.AutomaticEnv()
 
 	// Load config
-	var configPath = config.GetString("config")
-	if len(configPath) > 0 {
-		logs.Log.Infof("Loading config from: %s", configPath)
-		config.SetConfigFile(configPath)
+	if len(*configPath) > 0 {
+		logs.Log.Infof("Loading config from: %s", *configPath)
+		config.SetConfigFile(*configPath)
 		err := config.ReadInConfig()
 		if err != nil {
-			logs.Log.Fatalf("Config could not be loaded from: %s", configPath)
+			logs.Log.Fatalf("Config could not be loaded from: %s", *configPath)
 		}
 	}
 
@@ -73,7 +76,7 @@ func loadConfig() *viper.Viper {
 func init() {
 	logs.Setup()
 	config = loadConfig()
-	logs.SetConfig(config)
+	logs.SetLogLevel(config.GetString("log.level"))
 
 	cfg, _ := json.MarshalIndent(config.AllSettings(), "", "  ")
 	logs.Log.Debugf("Following settings loaded: \n %+v", string(cfg))
@@ -83,23 +86,28 @@ func main() {
 	flag.Parse() // Scan the arguments list
 
 	var powFunc giota.PowFunc
+	var powType string
 
 	switch strings.ToLower(config.GetString("pow.type")) {
 
 	case "giota":
-		_, powFunc = giota.GetBestPoW()
+		powType, powFunc = giota.GetBestPoW()
 
 	case "giota-go":
 		powFunc = giota.PowGo
+		powType = "gIOTA-Go"
 
 	case "giota-c":
 		powFunc = giota.PowC
+		powType = "gIOTA-PowC"
 
 	case "giota-c128":
 		powFunc = giota.PowC128
+		powType = "gIOTA-PowC128"
 
 	case "giota-sse":
 		powFunc = giota.PowSSE
+		powType = "gIOTA-PowSSE"
 
 	case "pidiver":
 		piconfig := pidiver.PiDiverConfig{
@@ -115,6 +123,7 @@ func main() {
 		}
 
 		powFunc = pidiver.PowPiDiver
+		powType = "PiDiver"
 
 	case "usbdiver":
 		piconfig := pidiver.PiDiverConfig{
@@ -130,9 +139,11 @@ func main() {
 		}
 
 		powFunc = pidiver.PowUSBDiver
+		powType = "USBDiver"
 
 	case "cyc1000":
 		log.Fatal(errors.New("cyc1000 not implemented yet"))
+		powType = "CYC1000"
 
 	default:
 		log.Fatal(errors.New("Unknown POW type"))
@@ -143,10 +154,10 @@ func main() {
 
 	// Servers should unlink the socket pathname prior to binding it.
 	// https://troydhanson.github.io/network/Unix_domain_sockets.html
-	syscall.Unlink(config.GetString("socket-path"))
+	syscall.Unlink(config.GetString("server.socketPath"))
 
 	log.Println("Starting powSrv...")
-	ln, err := net.Listen("unix", config.GetString("socket-path"))
+	ln, err := net.Listen("unix", config.GetString("server.socketPath"))
 	if err != nil {
 		log.Fatal("Listen error:", err)
 	}
@@ -160,6 +171,7 @@ func main() {
 		os.Exit(0)
 	}(ln, sigc)
 
+	log.Println(fmt.Sprintf("Using POW type: %v", powType))
 	log.Println("powSrv started. Waiting for connections...")
 	for {
 		fd, err := ln.Accept()
