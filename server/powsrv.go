@@ -40,7 +40,7 @@ func loadConfig() *viper.Viper {
 	flag.StringP("fpga.core", "f", "pidiver1.1.rbf", "Core/config file to upload to FPGA")
 	flag.StringP("usb.device", "d", "/dev/ttyACM0", "Device file for usb communication")
 
-	flag.StringP("pow.type", "t", "giota", "'giota', 'giota-go', giota-c', 'giota-c128', 'giota-sse', 'pidiver', 'usbdiver' or 'cyc1000'")
+	flag.StringP("pow.type", "t", "giota", "'giota', 'pidiver', 'usbdiver' or 'cyc1000'")
 	flag.IntP("pow.maxMinWeightMagnitude", "m", 20, "Maximum Min-Weight-Magnitude (Difficulty for PoW)")
 
 	var logLevel = flag.StringP("log.level", "l", "INFO", "'DEBUG', 'INFO', 'NOTICE', 'WARNING', 'ERROR' or 'CRITICAL'")
@@ -93,26 +93,6 @@ func main() {
 
 	case "giota":
 		powType, powFunc = giota.GetBestPoW()
-		powVersion = ""
-
-	case "giota-go":
-		powFunc = giota.PowGo
-		powType = "gIOTA-Go"
-		powVersion = ""
-
-	case "giota-c":
-		powFunc = giota.PowC
-		powType = "gIOTA-PowC"
-		powVersion = ""
-
-	case "giota-c128":
-		powFunc = giota.PowC128
-		powType = "gIOTA-PowC128"
-		powVersion = ""
-
-	case "giota-sse":
-		powFunc = giota.PowSSE
-		powType = "gIOTA-PowSSE"
 		powVersion = ""
 
 	case "pidiver":
