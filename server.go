@@ -9,7 +9,6 @@ import (
 
 	"github.com/iotaledger/giota"
 	"github.com/lunixbochs/struc"
-	"github.com/shufps/pidiver"
 	"github.com/sigurn/crc8"
 )
 
@@ -27,7 +26,7 @@ const (
 	IpcCmdGetServerVersion = 0x04 // C => S: Get the version of this application
 	IpcCmdGetPowType       = 0x05 // C => S: Get the name of the used POW implementation (e.g. PiDiver)
 	IpcCmdGetPowVersion    = 0x06 // C => S: Get the version of the used POW implementation (e.g. PiDiver FPGA Core Version)
-	IpcCmdInitPOW          = 0x07 // C => S: Init POW
+//	IpcCmdInitPOW          = 0x07 // C => S: Init POW
 	IpcCmdPowFunc          = 0x08 // C => S: Do POW
 
 	powSrvVersion = "0.1.0"
@@ -36,6 +35,8 @@ const (
 var crc8Table = crc8.MakeTable(crc8.CRC8_MAXIM)
 var powMutex = &sync.Mutex{}
 var piDiverInitialized = false
+var powFuncPtr giota.PowFunc
+
 
 /*
 	Interprocess communication protocol
@@ -204,13 +205,17 @@ func sendToClient(c net.Conn, responseMsg *IpcMessage) (err error) {
 	return err
 }
 
+func SetPowFunc(f giota.PowFunc) {
+    powFuncPtr = f
+}
+
 // powFunc calls the hardware POW secured by a Mutex
 func powFunc(trytes giota.Trytes, mwm int) (giota.Trytes, error) {
 	powMutex.Lock()
 	defer powMutex.Unlock()
 
 	//fmt.Printf("Start POW! Weight: %v\n", mwm)
-	result, err := pidiver.PowPiDiver(trytes, mwm)
+	result, err := powFuncPtr(trytes, mwm)
 	//result, err := "ABCDEFGHIJKLMNOPQRSTUVWXYZ", err
 	return result, err
 }
@@ -310,6 +315,7 @@ func HandleClientConnection(c net.Conn) {
 						responseMsg, _ := NewIpcMessageV1(frame.ReqID, IpcCmdResponse, []byte("Not implemented"))
 						sendToClient(c, responseMsg)
 
+/* better to this in main
 					case IpcCmdInitPOW:
 						if !piDiverInitialized {
 							err = pidiver.InitPiDiver()
@@ -323,7 +329,7 @@ func HandleClientConnection(c net.Conn) {
 						}
 						responseMsg, _ := NewIpcMessageV1(frame.ReqID, IpcCmdResponse, []byte("PiDiver initialized successfully"))
 						sendToClient(c, responseMsg)
-
+*/
 					case IpcCmdPowFunc:
 						if !piDiverInitialized {
 							responseMsg, _ := NewIpcMessageV1(frame.ReqID, IpcCmdError, []byte("PiDiver not initialized"))
