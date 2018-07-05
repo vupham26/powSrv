@@ -34,7 +34,6 @@ const (
 
 var crc8Table = crc8.MakeTable(crc8.CRC8_MAXIM)
 var powMutex = &sync.Mutex{}
-var piDiverInitialized = false
 var powFuncPtr giota.PowFunc
 
 
@@ -331,13 +330,13 @@ func HandleClientConnection(c net.Conn) {
 						sendToClient(c, responseMsg)
 */
 					case IpcCmdPowFunc:
-						if !piDiverInitialized {
+/*						if !piDiverInitialized {
 							responseMsg, _ := NewIpcMessageV1(frame.ReqID, IpcCmdError, []byte("PiDiver not initialized"))
 							sendToClient(c, responseMsg)
 							frameState = FrameStateSearchEnq
 							break
 						}
-
+*/
 						mwm := int(frame.Data[0])
 
 						trytes, err := giota.ToTrytes(string(frame.Data[1:]))
