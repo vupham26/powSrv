@@ -2,9 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
-	"fmt"
-	"log"
 	"net"
 	"os"
 	"os/signal"
@@ -106,6 +103,7 @@ func main() {
 			powType = "gIOTA-PowCL"
 		} else {
 			powType, powFunc = giota.GetBestPoW()
+			logs.Log.Infof("POW type '%s' not available. Using '%s' instead", "PowCL", powType)
 		}
 
 	case "giota-sse":
@@ -114,6 +112,7 @@ func main() {
 			powType = "gIOTA-PowSSE"
 		} else {
 			powType, powFunc = giota.GetBestPoW()
+			logs.Log.Infof("POW type '%s' not available. Using '%s' instead", "PowSSE", powType)
 		}
 
 	case "giota-carm64":
@@ -122,6 +121,7 @@ func main() {
 			powType = "gIOTA-PowCARM64"
 		} else {
 			powType, powFunc = giota.GetBestPoW()
+			logs.Log.Infof("POW type '%s' not available. Using '%s' instead", "PowCARM64", powType)
 		}
 
 	case "giota-c128":
@@ -130,6 +130,7 @@ func main() {
 			powType = "gIOTA-PowC128"
 		} else {
 			powType, powFunc = giota.GetBestPoW()
+			logs.Log.Infof("POW type '%s' not available. Using '%s' instead", "PowC128", powType)
 		}
 
 	case "giota-c":
@@ -138,6 +139,7 @@ func main() {
 			powType = "gIOTA-PowC"
 		} else {
 			powType, powFunc = giota.GetBestPoW()
+			logs.Log.Infof("POW type '%s' not available. Using '%s' instead", "PowC", powType)
 		}
 
 	case "pidiver":
@@ -150,7 +152,7 @@ func main() {
 		// initialize pidiver
 		err := pidiver.InitPiDiver(&piconfig)
 		if err != nil {
-			log.Fatal(err)
+			logs.Log.Fatal(err)
 		}
 		powVersion = "not implemented yet"
 		/*
@@ -172,7 +174,7 @@ func main() {
 		// initialize pidiver
 		err := pidiver.InitUSBDiver(&piconfig)
 		if err != nil {
-			log.Fatal(err)
+			logs.Log.Fatal(err)
 		}
 		powVersion = "not implemented yet"
 		/*
@@ -185,19 +187,18 @@ func main() {
 		powType = "USBDiver"
 
 	case "cyc1000":
-		log.Fatal(errors.New("cyc1000 not implemented yet"))
+		logs.Log.Fatal("cyc1000 not implemented yet")
 		powType = "CYC1000"
 		powVersion = "not implemented yet"
 		/*
 			powVersion, err := pidiver.GetFPGAVersion()
 			if err != nil {
-				log.Fatal(err)
+				logs.Log.Fatal(err)
 			}
 		*/
 
 	default:
-		log.Fatal(errors.New("Unknown POW type"))
-
+		logs.Log.Fatal("Unknown POW type")
 	}
 
 	powsrv.SetPowFunc(powFunc)
@@ -206,27 +207,27 @@ func main() {
 	// https://troydhanson.github.io/network/Unix_domain_sockets.html
 	syscall.Unlink(config.GetString("server.socketPath"))
 
-	log.Println("Starting powSrv...")
+	logs.Log.Info("Starting powSrv...")
 	ln, err := net.Listen("unix", config.GetString("server.socketPath"))
 	if err != nil {
-		log.Fatal("Listen error:", err)
+		logs.Log.Fatal("Listen error:", err)
 	}
 
 	sigc := make(chan os.Signal, 1)
 	signal.Notify(sigc, os.Interrupt, syscall.SIGTERM)
 	go func(ln net.Listener, c chan os.Signal) {
 		sig := <-c
-		log.Printf("Caught signal %s: powSrv shutting down.", sig)
+		logs.Log.Infof("Caught signal %s: powSrv shutting down.", sig)
 		ln.Close()
 		os.Exit(0)
 	}(ln, sigc)
 
-	log.Println(fmt.Sprintf("Using POW type: %v", powType))
-	log.Println("powSrv started. Waiting for connections...")
+	logs.Log.Info("powSrv started. Waiting for connections...")
+	logs.Log.Infof("Using POW type: %v", powType)
 	for {
 		fd, err := ln.Accept()
 		if err != nil {
-			log.Print("Accept error: ", err)
+			logs.Log.Info("Accept error: ", err)
 			continue
 		}
 
