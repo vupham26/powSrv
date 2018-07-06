@@ -13,7 +13,7 @@ import (
 	"github.com/sigurn/crc8"
 	"github.com/spf13/viper"
 
-	"./logs"
+	"github.com/muxxer/powsrv/logs"
 )
 
 const (
@@ -217,9 +217,9 @@ func powFunc(trytes giota.Trytes, mwm int) (giota.Trytes, error) {
 	}
 
 	logs.Log.Debugf("Starting PoW! Weight: %v", mwm)
-	ts = time.Now()
+	ts := time.Now()
 	result, err := powFuncPtr(trytes, mwm)
-	logs.Log.Debugf("Finished PoW! Time: %v [ms]", (time.Duration(time.Now()-ts) / time.Millisecond))
+	logs.Log.Debugf("Finished PoW! Time: %v [ms]", (time.Since(ts) / time.Millisecond))
 
 	return result, err
 }
