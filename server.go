@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/iotaledger/giota"
 	"github.com/lunixbochs/struc"
 	"github.com/sigurn/crc8"
 	"github.com/spf13/viper"
+
+	"./logs"
 )
 
 const (
@@ -213,7 +216,11 @@ func powFunc(trytes giota.Trytes, mwm int) (giota.Trytes, error) {
 		return "", errors.New("powFunc not initialized")
 	}
 
+	logs.Log.Debugf("Starting PoW! Weight: %v", mwm)
+	ts = time.Now()
 	result, err := powFuncPtr(trytes, mwm)
+	logs.Log.Debugf("Finished PoW! Time: %v [ms]", (time.Duration(time.Now()-ts) / time.Millisecond))
+
 	return result, err
 }
 
@@ -280,6 +287,7 @@ func HandleClientConnection(c net.Conn, config *viper.Viper, powType string, pow
 				case FrameStateSearchCRC:
 					frame, err := BytesToIpcFrameV1(frameData)
 					if err != nil {
+						logs.Log.Debug(err.Error())
 						responseMsg, _ := NewIpcMessageV1(0, IpcCmdError, []byte(err.Error()))
 						sendToClient(c, responseMsg)
 						frameState = FrameStateSearchEnq
@@ -288,6 +296,7 @@ func HandleClientConnection(c net.Conn, config *viper.Viper, powType string, pow
 
 					crc := crc8.Checksum(frameData, crc8Table)
 					if buf[bufferIdx] != crc {
+						logs.Log.Debugf("Wrong Checksum! CRC: %X, Expected: %X", crc, buf[bufferIdx])
 						responseMsg, _ := NewIpcMessageV1(frame.ReqID, IpcCmdError, []byte(fmt.Sprintf("Wrong Checksum! CRC: %X, Expected: %X", crc, buf[bufferIdx])))
 						sendToClient(c, responseMsg)
 						frameState = FrameStateSearchEnq
@@ -297,21 +306,26 @@ func HandleClientConnection(c net.Conn, config *viper.Viper, powType string, pow
 					switch frame.Command {
 
 					case IpcCmdGetServerVersion:
+						logs.Log.Debug("Received Command GetServerVersion")
 						responseMsg, _ := NewIpcMessageV1(frame.ReqID, IpcCmdResponse, []byte(powSrvVersion))
 						sendToClient(c, responseMsg)
 
 					case IpcCmdGetPowType:
+						logs.Log.Debug("Received Command GetPowType")
 						responseMsg, _ := NewIpcMessageV1(frame.ReqID, IpcCmdResponse, []byte(powType))
 						sendToClient(c, responseMsg)
 
 					case IpcCmdGetPowVersion:
+						logs.Log.Debug("Received Command GetPowVersion")
 						responseMsg, _ := NewIpcMessageV1(frame.ReqID, IpcCmdResponse, []byte(powVersion))
 						sendToClient(c, responseMsg)
 
 					case IpcCmdPowFunc:
+						logs.Log.Debug("Received Command PowFunc")
 						mwm := int(frame.Data[0])
 
 						if mwm > config.GetInt("pow.maxMinWeightMagnitude") {
+							logs.Log.Debugf("MinWeightMagnitude too high. MWM: %v Allowed: %v", mwm, config.GetInt("pow.maxMinWeightMagnitude"))
 							responseMsg, _ := NewIpcMessageV1(frame.ReqID, IpcCmdError, []byte(fmt.Sprintf("MinWeightMagnitude too high. MWM: %v Allowed: %v", mwm, config.GetInt("pow.maxMinWeightMagnitude"))))
 							sendToClient(c, responseMsg)
 							frameState = FrameStateSearchEnq
@@ -320,6 +334,7 @@ func HandleClientConnection(c net.Conn, config *viper.Viper, powType string, pow
 
 						trytes, err := giota.ToTrytes(string(frame.Data[1:]))
 						if err != nil {
+							logs.Log.Debug(err.Error())
 							responseMsg, _ := NewIpcMessageV1(frame.ReqID, IpcCmdError, []byte(err.Error()))
 							sendToClient(c, responseMsg)
 							frameState = FrameStateSearchEnq
@@ -328,6 +343,7 @@ func HandleClientConnection(c net.Conn, config *viper.Viper, powType string, pow
 
 						result, err := powFunc(trytes, mwm)
 						if err != nil {
+							logs.Log.Debug(err.Error())
 							responseMsg, _ := NewIpcMessageV1(frame.ReqID, IpcCmdError, []byte(err.Error()))
 							sendToClient(c, responseMsg)
 							frameState = FrameStateSearchEnq
@@ -343,6 +359,7 @@ func HandleClientConnection(c net.Conn, config *viper.Viper, powType string, pow
 
 					default:
 						// IpcCmdNotification, IpcCmdResponse, IpcCmdError
+						logs.Log.Debugf("Unknown command! Cmd: %X", frame.Command)
 						responseMsg, _ := NewIpcMessageV1(frame.ReqID, IpcCmdError, []byte(fmt.Sprintf("Unknown command! Cmd: %X", frame.Command)))
 						sendToClient(c, responseMsg)
 					}
