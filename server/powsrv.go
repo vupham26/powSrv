@@ -17,7 +17,7 @@ import (
 	flag "github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
-	"./logs"
+	"github.com/muxxer/powsrv/logs"
 )
 
 var config *viper.Viper
@@ -40,7 +40,7 @@ func loadConfig() *viper.Viper {
 	flag.StringP("fpga.core", "f", "pidiver1.1.rbf", "Core/config file to upload to FPGA")
 	flag.StringP("usb.device", "d", "/dev/ttyACM0", "Device file for usb communication")
 
-	flag.StringP("pow.type", "t", "giota", "'giota', 'pidiver', 'usbdiver' or 'cyc1000'")
+	flag.StringP("pow.type", "t", "giota", "'pidiver', 'usbdiver', 'cyc1000', 'giota', 'giota-cl', 'giota-sse', 'giota-carm64', 'giota-c128', 'giota-c' or giota-go'")
 	flag.IntP("pow.maxMinWeightMagnitude", "m", 20, "Maximum Min-Weight-Magnitude (Difficulty for PoW)")
 
 	var logLevel = flag.StringP("log.level", "l", "INFO", "'DEBUG', 'INFO', 'NOTICE', 'WARNING', 'ERROR' or 'CRITICAL'")
@@ -88,12 +88,57 @@ func main() {
 	var powFunc giota.PowFunc
 	var powType string
 	var powVersion string
+	var err error
 
 	switch strings.ToLower(config.GetString("pow.type")) {
 
 	case "giota":
 		powType, powFunc = giota.GetBestPoW()
 		powVersion = ""
+
+	case "giota-go":
+		powFunc = giota.PowGo
+		powType = "gIOTA-Go"
+
+	case "giota-cl":
+		powFunc, err = giota.GetPowFunc("PowCL")
+		if err == nil {
+			powType = "gIOTA-PowCL"
+		} else {
+			powType, powFunc = giota.GetBestPoW()
+		}
+
+	case "giota-sse":
+		powFunc, err = giota.GetPowFunc("PowSSE")
+		if err == nil {
+			powType = "gIOTA-PowSSE"
+		} else {
+			powType, powFunc = giota.GetBestPoW()
+		}
+
+	case "giota-carm64":
+		powFunc, err = giota.GetPowFunc("PowCARM64")
+		if err == nil {
+			powType = "gIOTA-PowCARM64"
+		} else {
+			powType, powFunc = giota.GetBestPoW()
+		}
+
+	case "giota-c128":
+		powFunc, err = giota.GetPowFunc("PowC128")
+		if err == nil {
+			powType = "gIOTA-PowC128"
+		} else {
+			powType, powFunc = giota.GetBestPoW()
+		}
+
+	case "giota-c":
+		powFunc, err = giota.GetPowFunc("PowC")
+		if err == nil {
+			powType = "gIOTA-PowC"
+		} else {
+			powType, powFunc = giota.GetBestPoW()
+		}
 
 	case "pidiver":
 		piconfig := pidiver.PiDiverConfig{
