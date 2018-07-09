@@ -233,11 +233,14 @@ func main() {
 
 	logs.Log.Info("powSrv started. Waiting for connections...")
 	logs.Log.Infof("Using POW type: %v", powType)
+	logs.Log.Infof("Listening for connections on: %v", config.GetString("server.socketPath"))
 	for {
 		fd, err := ln.Accept()
 		if err != nil {
 			logs.Log.Info("Accept error: ", err)
 			continue
+		} else {
+			logs.Log.Debugf("New connection accepted from %v", fd.RemoteAddr)
 		}
 
 		go powsrv.HandleClientConnection(fd, config, powType, powVersion)
