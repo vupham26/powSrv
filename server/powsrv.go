@@ -11,6 +11,7 @@ import (
 	"github.com/iotaledger/giota"
 	"github.com/muxxer/powsrv"
 	"github.com/shufps/pidiver/pidiver"
+	"github.com/shufps/pidiver/raspberry"
 	flag "github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
@@ -150,7 +151,8 @@ func main() {
 			ForceConfigure: false}
 
 		// initialize pidiver
-		err := pidiver.InitPiDiver(&piconfig)
+		llStruct := raspberry.GetLowLevel()
+		err := pidiver.InitPiDiver(&llStruct, &piconfig)
 		if err != nil {
 			logs.Log.Fatal(err)
 		}
