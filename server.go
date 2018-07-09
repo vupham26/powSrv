@@ -216,10 +216,10 @@ func powFunc(trytes giota.Trytes, mwm int) (giota.Trytes, error) {
 		return "", errors.New("powFunc not initialized")
 	}
 
-	logs.Log.Debugf("Starting PoW! Weight: %v", mwm)
+	logs.Log.Debugf("Starting PoW! Weight: %d", mwm)
 	ts := time.Now()
 	result, err := powFuncPtr(trytes, mwm)
-	logs.Log.Debugf("Finished PoW! Time: %v [ms]", (time.Since(ts) / time.Millisecond))
+	logs.Log.Debugf("Finished PoW! Time: %d [ms]", (int64(time.Since(ts) / time.Millisecond)))
 
 	return result, err
 }

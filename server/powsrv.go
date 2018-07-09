@@ -46,7 +46,7 @@ func loadConfig() *viper.Viper {
 
 	config.BindPFlags(flag.CommandLine)
 
-	var configPath = flag.StringP("config", "c", "", "Config file path")
+	var configPath = flag.StringP("config", "c", "powsrv.config.json", "Config file path")
 	flag.Parse()
 
 	logs.SetLogLevel(*logLevel)
@@ -59,9 +59,16 @@ func loadConfig() *viper.Viper {
 
 	// Load config
 	if len(*configPath) > 0 {
+		_, err := os.Stat(*configPath)
+		if !flag.CommandLine.Changed("config") && os.IsNotExist(err) {
+			// Standard config file not found => skip
+			logs.Log.Info("Standard config file not found. Loading default settings.")
+			return config
+		}
+
 		logs.Log.Infof("Loading config from: %s", *configPath)
 		config.SetConfigFile(*configPath)
-		err := config.ReadInConfig()
+		err = config.ReadInConfig()
 		if err != nil {
 			logs.Log.Fatalf("Config could not be loaded from: %s", *configPath)
 		}
