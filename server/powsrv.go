@@ -15,6 +15,7 @@ import (
 	flag "github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
+	"github.com/muxxer/ftdiver"
 	"github.com/muxxer/powsrv/logs"
 )
 
@@ -152,7 +153,7 @@ func main() {
 
 	case "pidiver":
 		piconfig := pidiver.PiDiverConfig{
-			Device:         config.GetString("fpga.device"),
+			Device:         "",
 			ConfigFile:     config.GetString("fpga.core"),
 			ForceFlash:     false,
 			ForceConfigure: false}
@@ -175,10 +176,10 @@ func main() {
 
 	case "usbdiver":
 		piconfig := pidiver.PiDiverConfig{
-			Device:         config.GetString("fpga.device"),
-			ConfigFile:     config.GetString("fpga.config"),
-			ForceFlash:     config.GetBool("fpga.force-upload"),
-			ForceConfigure: config.GetBool("fpga.force-configure")}
+			Device:         config.GetString("usb.device"),
+			ConfigFile:     config.GetString("fpga.core"),
+			ForceFlash:     false,
+			ForceConfigure: false}
 
 		// initialize pidiver
 		err := pidiver.InitUSBDiver(&piconfig)
@@ -195,9 +196,19 @@ func main() {
 		powFunc = pidiver.PowUSBDiver
 		powType = "USBDiver"
 
-	case "cyc1000":
-		logs.Log.Fatal("cyc1000 not implemented yet")
-		powType = "CYC1000"
+	case "ftdiver":
+		piconfig := pidiver.PiDiverConfig{
+			Device:         "",
+			ConfigFile:     "",
+			ForceFlash:     false,
+			ForceConfigure: false}
+
+		// initialize pidiver
+		llStruct := ftdiver.GetLowLevel()
+		err := pidiver.InitPiDiver(&llStruct, &piconfig)
+		if err != nil {
+			logs.Log.Fatal(err)
+		}
 		powVersion = "not implemented yet"
 		/*
 			powVersion, err := pidiver.GetFPGAVersion()
@@ -205,6 +216,8 @@ func main() {
 				logs.Log.Fatal(err)
 			}
 		*/
+		powFunc = pidiver.PowPiDiver
+		powType = "ftdiver"
 
 	default:
 		logs.Log.Fatal("Unknown POW type")
@@ -232,15 +245,15 @@ func main() {
 	}(ln, sigc)
 
 	logs.Log.Info("powSrv started. Waiting for connections...")
+	logs.Log.Infof("Listening for connections on \"%v\"", config.GetString("server.socketPath"))
 	logs.Log.Infof("Using POW type: %v", powType)
-	logs.Log.Infof("Listening for connections on: %v", config.GetString("server.socketPath"))
 	for {
 		fd, err := ln.Accept()
 		if err != nil {
 			logs.Log.Info("Accept error: ", err)
 			continue
 		} else {
-			logs.Log.Debugf("New connection accepted from %v", fd.RemoteAddr)
+			logs.Log.Debugf("New connection accepted from \"%v\"", fd.RemoteAddr)
 		}
 
 		go powsrv.HandleClientConnection(fd, config, powType, powVersion)
