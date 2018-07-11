@@ -39,7 +39,7 @@ func loadConfig() *viper.Viper {
 	flag.StringP("fpga.core", "f", "pidiver1.1.rbf", "Core/config file to upload to FPGA")
 	flag.StringP("usb.device", "d", "/dev/ttyACM0", "Device file for usb communication")
 
-	flag.StringP("pow.type", "t", "giota", "'pidiver', 'usbdiver', 'cyc1000', 'giota', 'giota-cl', 'giota-sse', 'giota-carm64', 'giota-c128', 'giota-c' or giota-go'")
+	flag.StringP("pow.type", "t", "giota", "'pidiver', 'usbdiver', 'ftdiver', 'giota', 'giota-cl', 'giota-sse', 'giota-carm64', 'giota-c128', 'giota-c' or giota-go'")
 	flag.IntP("pow.maxMinWeightMagnitude", "m", 20, "Maximum Min-Weight-Magnitude (Difficulty for PoW)")
 
 	var logLevel = flag.StringP("log.level", "l", "INFO", "'DEBUG', 'INFO', 'NOTICE', 'WARNING', 'ERROR' or 'CRITICAL'")
