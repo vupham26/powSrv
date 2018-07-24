@@ -2,10 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/iotaledger/giota"
@@ -19,7 +21,20 @@ import (
 	"github.com/muxxer/powsrv/logs"
 )
 
+type PowConfigDevice struct {
+	Type    string
+	Network string
+	Address string
+	Core    string
+	Device  string
+}
+
+type PowConfig struct {
+	Devices []PowConfigDevice
+}
+
 var config *viper.Viper
+var powConfig *PowConfig
 
 /*
 PRECEDENCE (Higher number overrides the others):
@@ -30,16 +45,13 @@ PRECEDENCE (Higher number overrides the others):
 5. flag
 6. explicit call to Set
 */
-func loadConfig() *viper.Viper {
+func loadConfig() (*viper.Viper, *PowConfig) {
 	// Setup Viper
 	var config = viper.New()
+	var powConfig *PowConfig
 
 	// Get command line arguments
 	// The flag package provides a default help printer via -h switch
-	flag.StringP("fpga.core", "f", "pidiver1.1.rbf", "Core/config file to upload to FPGA")
-	flag.StringP("usb.device", "d", "/dev/ttyACM0", "Device file for usb communication")
-
-	flag.StringP("pow.type", "t", "giota", "'pidiver', 'usbdiver', 'ftdiver', 'giota', 'giota-cl', 'giota-sse', 'giota-carm64', 'giota-c128', 'giota-c' or giota-go'")
 	flag.IntP("pow.maxMinWeightMagnitude", "m", 20, "Maximum Min-Weight-Magnitude (Difficulty for PoW)")
 
 	var logLevel = flag.StringP("log.level", "l", "INFO", "'DEBUG', 'INFO', 'NOTICE', 'WARNING', 'ERROR' or 'CRITICAL'")
@@ -50,7 +62,6 @@ func loadConfig() *viper.Viper {
 
 	var configPath = flag.StringP("config", "c", "powsrv.config.json", "Config file path")
 	flag.Parse()
-
 	logs.SetLogLevel(*logLevel)
 
 	// Bind environment vars
@@ -65,23 +76,31 @@ func loadConfig() *viper.Viper {
 		if !flag.CommandLine.Changed("config") && os.IsNotExist(err) {
 			// Standard config file not found => skip
 			logs.Log.Info("Standard config file not found. Loading default settings.")
-			return config
+			powType, _ := giota.GetBestPoW()
+			powDevice := PowConfigDevice{Type: powType}
+			powConfig := PowConfig{Devices: []PowConfigDevice{powDevice}}
+			return config, &powConfig
 		}
 
 		logs.Log.Infof("Loading config from: %s", *configPath)
 		config.SetConfigFile(*configPath)
 		err = config.ReadInConfig()
 		if err != nil {
-			logs.Log.Fatalf("Config could not be loaded from: %s", *configPath)
+			logs.Log.Fatalf("Config could not be loaded from: %s, %v", *configPath, err.Error())
 		}
 	}
 
-	return config
+	err := config.UnmarshalKey("pow", &powConfig)
+	if err != nil {
+		logs.Log.Fatalf("Config could not be loaded from: %s, %v", *configPath, err.Error())
+	}
+
+	return config, powConfig
 }
 
 func init() {
 	logs.Setup()
-	config = loadConfig()
+	config, powConfig = loadConfig()
 	logs.SetLogLevel(config.GetString("log.level"))
 
 	cfg, _ := json.MarshalIndent(config.AllSettings(), "", "  ")
@@ -91,140 +110,152 @@ func init() {
 func main() {
 	flag.Parse() // Scan the arguments list
 
-	var powFunc giota.PowFunc
-	var powType string
-	var powVersion string
+	var powDevices []powsrv.PowDevice
 	var err error
 
-	switch strings.ToLower(config.GetString("pow.type")) {
+	for _, device := range powConfig.Devices {
+		var powFunc giota.PowFunc
+		var powType string
+		var powVersion string
 
-	case "giota":
-		powType, powFunc = giota.GetBestPoW()
-		powVersion = ""
+		switch strings.ToLower(device.Type) {
 
-	case "giota-go":
-		powFunc = giota.PowGo
-		powType = "gIOTA-Go"
-
-	case "giota-cl":
-		powFunc, err = giota.GetPowFunc("PowCL")
-		if err == nil {
-			powType = "gIOTA-PowCL"
-		} else {
+		case "giota":
 			powType, powFunc = giota.GetBestPoW()
-			logs.Log.Infof("POW type '%s' not available. Using '%s' instead", "PowCL", powType)
-		}
+			powVersion = ""
 
-	case "giota-sse":
-		powFunc, err = giota.GetPowFunc("PowSSE")
-		if err == nil {
-			powType = "gIOTA-PowSSE"
-		} else {
-			powType, powFunc = giota.GetBestPoW()
-			logs.Log.Infof("POW type '%s' not available. Using '%s' instead", "PowSSE", powType)
-		}
+		case "giota-go":
+			powFunc = giota.PowGo
+			powType = "gIOTA-Go"
 
-	case "giota-carm64":
-		powFunc, err = giota.GetPowFunc("PowCARM64")
-		if err == nil {
-			powType = "gIOTA-PowCARM64"
-		} else {
-			powType, powFunc = giota.GetBestPoW()
-			logs.Log.Infof("POW type '%s' not available. Using '%s' instead", "PowCARM64", powType)
-		}
-
-	case "giota-c128":
-		powFunc, err = giota.GetPowFunc("PowC128")
-		if err == nil {
-			powType = "gIOTA-PowC128"
-		} else {
-			powType, powFunc = giota.GetBestPoW()
-			logs.Log.Infof("POW type '%s' not available. Using '%s' instead", "PowC128", powType)
-		}
-
-	case "giota-c":
-		powFunc, err = giota.GetPowFunc("PowC")
-		if err == nil {
-			powType = "gIOTA-PowC"
-		} else {
-			powType, powFunc = giota.GetBestPoW()
-			logs.Log.Infof("POW type '%s' not available. Using '%s' instead", "PowC", powType)
-		}
-
-	case "pidiver":
-		piconfig := pidiver.PiDiverConfig{
-			Device:         "",
-			ConfigFile:     config.GetString("fpga.core"),
-			ForceFlash:     false,
-			ForceConfigure: false}
-
-		// initialize pidiver
-		llStruct := raspberry.GetLowLevel()
-		err := pidiver.InitPiDiver(&llStruct, &piconfig)
-		if err != nil {
-			logs.Log.Fatal(err)
-		}
-		powVersion = "not implemented yet"
-		/*
-			powVersion, err := pidiver.GetFPGAVersion()
-			if err != nil {
-				log.Fatal(err)
+		case "giota-cl":
+			powFunc, err = giota.GetPowFunc("PowCL")
+			if err == nil {
+				powType = "gIOTA-PowCL"
+			} else {
+				powType, powFunc = giota.GetBestPoW()
+				logs.Log.Infof("POW type '%s' not available. Using '%s' instead", "PowCL", powType)
 			}
-		*/
-		powFunc = pidiver.PowPiDiver
-		powType = "PiDiver"
 
-	case "usbdiver":
-		piconfig := pidiver.PiDiverConfig{
-			Device:         config.GetString("usb.device"),
-			ConfigFile:     config.GetString("fpga.core"),
-			ForceFlash:     false,
-			ForceConfigure: false}
-
-		// initialize pidiver
-		err := pidiver.InitUSBDiver(&piconfig)
-		if err != nil {
-			logs.Log.Fatal(err)
-		}
-		powVersion = "not implemented yet"
-		/*
-			powVersion, err := pidiver.GetFPGAVersion()
-			if err != nil {
-				log.Fatal(err)
+		case "giota-sse":
+			powFunc, err = giota.GetPowFunc("PowSSE")
+			if err == nil {
+				powType = "gIOTA-PowSSE"
+			} else {
+				powType, powFunc = giota.GetBestPoW()
+				logs.Log.Infof("POW type '%s' not available. Using '%s' instead", "PowSSE", powType)
 			}
-		*/
-		powFunc = pidiver.PowUSBDiver
-		powType = "USBDiver"
 
-	case "ftdiver":
-		piconfig := pidiver.PiDiverConfig{
-			Device:         "",
-			ConfigFile:     "",
-			ForceFlash:     false,
-			ForceConfigure: false}
+		case "giota-carm64":
+			powFunc, err = giota.GetPowFunc("PowCARM64")
+			if err == nil {
+				powType = "gIOTA-PowCARM64"
+			} else {
+				powType, powFunc = giota.GetBestPoW()
+				logs.Log.Infof("POW type '%s' not available. Using '%s' instead", "PowCARM64", powType)
+			}
 
-		// initialize pidiver
-		llStruct := ftdiver.GetLowLevel()
-		err := pidiver.InitPiDiver(&llStruct, &piconfig)
-		if err != nil {
-			logs.Log.Fatal(err)
-		}
-		powVersion = "not implemented yet"
-		/*
-			powVersion, err := pidiver.GetFPGAVersion()
+		case "giota-c128":
+			powFunc, err = giota.GetPowFunc("PowC128")
+			if err == nil {
+				powType = "gIOTA-PowC128"
+			} else {
+				powType, powFunc = giota.GetBestPoW()
+				logs.Log.Infof("POW type '%s' not available. Using '%s' instead", "PowC128", powType)
+			}
+
+		case "giota-c":
+			powFunc, err = giota.GetPowFunc("PowC")
+			if err == nil {
+				powType = "gIOTA-PowC"
+			} else {
+				powType, powFunc = giota.GetBestPoW()
+				logs.Log.Infof("POW type '%s' not available. Using '%s' instead", "PowC", powType)
+			}
+
+		case "pidiver":
+			piconfig := pidiver.PiDiverConfig{
+				Device:         "",
+				ConfigFile:     device.Core,
+				ForceFlash:     false,
+				ForceConfigure: false}
+
+			// initialize pidiver
+			llStruct := raspberry.GetLowLevel()
+			err := pidiver.InitPiDiver(&llStruct, &piconfig)
 			if err != nil {
 				logs.Log.Fatal(err)
 			}
-		*/
-		powFunc = pidiver.PowPiDiver
-		powType = "ftdiver"
+			powVersion = "not implemented yet"
+			/*
+				powVersion, err := pidiver.GetFPGAVersion()
+				if err != nil {
+					log.Fatal(err)
+				}
+			*/
+			powFunc = pidiver.PowPiDiver
+			powType = "PiDiver"
 
-	default:
-		logs.Log.Fatal("Unknown POW type")
+		case "usbdiver":
+			piconfig := pidiver.PiDiverConfig{
+				Device:         device.Device,
+				ConfigFile:     device.Core,
+				ForceFlash:     false,
+				ForceConfigure: false}
+
+			// initialize pidiver
+			err := pidiver.InitUSBDiver(&piconfig)
+			if err != nil {
+				logs.Log.Fatal(err)
+			}
+			powVersion = "not implemented yet"
+			/*
+				powVersion, err := pidiver.GetFPGAVersion()
+				if err != nil {
+					log.Fatal(err)
+				}
+			*/
+			powFunc = pidiver.PowUSBDiver
+			powType = "USBDiver"
+
+		case "ftdiver":
+			piconfig := pidiver.PiDiverConfig{
+				Device:         "",
+				ConfigFile:     "",
+				ForceFlash:     false,
+				ForceConfigure: false}
+
+			// initialize pidiver
+			llStruct := ftdiver.GetLowLevel()
+			err := pidiver.InitPiDiver(&llStruct, &piconfig)
+			if err != nil {
+				logs.Log.Fatal(err)
+			}
+			powVersion = "not implemented yet"
+			/*
+				powVersion, err := pidiver.GetFPGAVersion()
+				if err != nil {
+					logs.Log.Fatal(err)
+				}
+			*/
+			powFunc = pidiver.PowPiDiver
+			powType = "ftdiver"
+
+		case "powsrv":
+			powClient := powsrv.PowClient{Network: device.Network, Address: device.Address, WriteTimeOutMs: 500, ReadTimeOutMs: 5000}
+			powClient.Init()
+			_, powType, powVersion, err = powClient.GetPowInfo()
+			if err != nil {
+				logs.Log.Fatal(err.Error())
+			}
+			powFunc = powClient.PowFunc
+
+		default:
+			logs.Log.Fatal("Unknown POW type")
+		}
+
+		powDevices = append(powDevices, powsrv.PowDevice{PowType: powType, PowVersion: powVersion, PowFunc: powFunc, PowMutex: &sync.Mutex{}})
 	}
-
-	powsrv.SetPowFunc(powFunc)
-
 	// Servers should unlink the socket pathname prior to binding it.
 	// https://troydhanson.github.io/network/Unix_domain_sockets.html
 	syscall.Unlink(config.GetString("server.socketPath"))
@@ -246,7 +277,18 @@ func main() {
 
 	logs.Log.Info("powSrv started. Waiting for connections...")
 	logs.Log.Infof("Listening for connections on \"%v\"", config.GetString("server.socketPath"))
-	logs.Log.Infof("Using POW type: %v", powType)
+
+	for i, dev := range powDevices {
+		logs.Log.Infof("POW Device %d: Using POW type: %v", i, dev.PowType)
+	}
+
+	powTypes := ""
+	powVersions := ""
+	for i, dev := range powDevices {
+		powTypes += fmt.Sprintf("[%d] %v, ", i, dev.PowType)
+		powVersions += fmt.Sprintf("[%d] %v, ", i, dev.PowVersion)
+	}
+
 	for {
 		fd, err := ln.Accept()
 		if err != nil {
@@ -256,6 +298,7 @@ func main() {
 			logs.Log.Debugf("New connection accepted from \"%v\"", fd.RemoteAddr)
 		}
 
-		go powsrv.HandleClientConnection(fd, config, powType, powVersion)
+		// Only one client connection at a time (ToDo: could be improved to handle several)
+		powsrv.HandleClientConnection(fd, config, powDevices, powTypes, powVersions)
 	}
 }

@@ -1,0 +1,18 @@
+{
+  "server": {
+    "socketpath": "/tmp/powSrv.sock"
+  },
+  "log": {
+    "level": "INFO"
+  },
+  "pow": {
+    "maxminweightmagnitude": 20,
+    "devices": [
+        { "type":"giota" },
+        { "type":"pidiver", "core":"pidiver1.1.rbf" },
+        { "type":"ftdiver" },
+        { "type":"usbdiver", "device":"/dev/ttyACM0" },
+        { "type":"powsrv", "host":"192.168.1.59", "port": 14300 }
+    ]
+  }
+}

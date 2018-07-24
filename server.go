@@ -37,7 +37,8 @@ const (
 
 var crc8Table = crc8.MakeTable(crc8.CRC8_MAXIM)
 var powMutex = &sync.Mutex{}
-var powFuncPtr giota.PowFunc
+
+//var powFuncPtr giota.PowFunc
 
 /*
 	Interprocess communication protocol
@@ -105,6 +106,19 @@ var powFuncPtr giota.PowFunc
 		Checksum of the whole FRAME_DATA
 
 */
+
+type PowDevice struct {
+	PowFunc    giota.PowFunc
+	PowType    string
+	PowVersion string
+	PowMutex   *sync.Mutex
+}
+
+type PowJob struct {
+	ReqID   byte
+	Request giota.Trytes
+	MWM     int
+}
 
 // IpcMessage is the container of an IPC frame with additional communication control data
 type IpcMessage struct {
@@ -191,44 +205,69 @@ func NewIpcMessageV1(requestID byte, command byte, data []byte) (*IpcMessage, er
 }
 
 // sendToClient sends an IpcMessage to a client
-func sendToClient(c net.Conn, responseMsg *IpcMessage) (err error) {
-	response, err := responseMsg.ToBytes()
-	if err != nil {
-		return err
+func sendToClient(c net.Conn, channelSend chan *IpcMessage) {
+	for responseMsg := range channelSend {
+		response, err := responseMsg.ToBytes()
+		if err != nil {
+			logs.Log.Errorf("responseMsg.ToBytes: %v", err.Error())
+			continue
+		}
+
+		_, err = c.Write(response)
+		if err != nil {
+			logs.Log.Errorf("net.Conn.Write: %v", err.Error())
+			continue
+		}
 	}
-
-	_, err = c.Write(response)
-
-	return err
 }
 
+/*
 // SetPowFunc sets the function pointer for POW
 func SetPowFunc(f giota.PowFunc) {
 	powFuncPtr = f
-}
+}*/
 
 // powFunc calls the hardware POW secured by a Mutex
-func powFunc(trytes giota.Trytes, mwm int) (giota.Trytes, error) {
-	powMutex.Lock()
-	defer powMutex.Unlock()
+func doPow(powDevice PowDevice, channelReceive chan *PowJob, channelSend chan *IpcMessage) {
+	for powJob := range channelReceive {
+		powDevice.PowMutex.Lock()
+		if powDevice.PowFunc == nil {
+			powDevice.PowMutex.Unlock()
+			responseMsg, _ := NewIpcMessageV1(powJob.ReqID, IpcCmdError, []byte("powFunc not initialized"))
+			channelSend <- responseMsg
+			continue
+		}
 
-	if powFuncPtr == nil {
-		return "", errors.New("powFunc not initialized")
+		logs.Log.Debugf("Starting PoW! Weight: %d", powJob.MWM)
+		ts := time.Now()
+		response, err := powDevice.PowFunc(powJob.Request, powJob.MWM)
+		powDevice.PowMutex.Unlock()
+		if err != nil {
+			responseMsg, _ := NewIpcMessageV1(powJob.ReqID, IpcCmdError, []byte(err.Error()))
+			channelSend <- responseMsg
+			continue
+		}
+
+		responseMsg, err := NewIpcMessageV1(powJob.ReqID, IpcCmdResponse, []byte(response))
+		channelSend <- responseMsg
+		logs.Log.Debugf("Finished PoW! Time: %d [ms]", (int64(time.Since(ts) / time.Millisecond)))
 	}
-
-	logs.Log.Debugf("Starting PoW! Weight: %d", mwm)
-	ts := time.Now()
-	result, err := powFuncPtr(trytes, mwm)
-	logs.Log.Debugf("Finished PoW! Time: %d [ms]", (int64(time.Since(ts) / time.Millisecond)))
-
-	return result, err
 }
 
 // HandleClientConnection handles the communication to the client until the socket is closed
-func HandleClientConnection(c net.Conn, config *viper.Viper, powType string, powVersion string) {
+func HandleClientConnection(c net.Conn, config *viper.Viper, powDevices []PowDevice, powTypes string, powVersions string) {
 	frameState := FrameStateSearchEnq
 	frameLength := 0
 	var frameData []byte
+
+	powChannel := make(chan *PowJob, 100)      // Channel PowJobs
+	channelSend := make(chan *IpcMessage, 100) // Channel SendMessagesToClient
+
+	for _, dev := range powDevices {
+		go doPow(dev, powChannel, channelSend)
+	}
+	go sendToClient(c, channelSend)
+
 	defer c.Close()
 
 	for {
@@ -289,7 +328,7 @@ func HandleClientConnection(c net.Conn, config *viper.Viper, powType string, pow
 					if err != nil {
 						logs.Log.Debug(err.Error())
 						responseMsg, _ := NewIpcMessageV1(0, IpcCmdError, []byte(err.Error()))
-						sendToClient(c, responseMsg)
+						channelSend <- responseMsg
 						frameState = FrameStateSearchEnq
 						break
 					}
@@ -298,7 +337,7 @@ func HandleClientConnection(c net.Conn, config *viper.Viper, powType string, pow
 					if buf[bufferIdx] != crc {
 						logs.Log.Debugf("Wrong Checksum! CRC: %X, Expected: %X", crc, buf[bufferIdx])
 						responseMsg, _ := NewIpcMessageV1(frame.ReqID, IpcCmdError, []byte(fmt.Sprintf("Wrong Checksum! CRC: %X, Expected: %X", crc, buf[bufferIdx])))
-						sendToClient(c, responseMsg)
+						channelSend <- responseMsg
 						frameState = FrameStateSearchEnq
 						break
 					}
@@ -308,17 +347,17 @@ func HandleClientConnection(c net.Conn, config *viper.Viper, powType string, pow
 					case IpcCmdGetServerVersion:
 						logs.Log.Debug("Received Command GetServerVersion")
 						responseMsg, _ := NewIpcMessageV1(frame.ReqID, IpcCmdResponse, []byte(powSrvVersion))
-						sendToClient(c, responseMsg)
+						channelSend <- responseMsg
 
 					case IpcCmdGetPowType:
 						logs.Log.Debug("Received Command GetPowType")
-						responseMsg, _ := NewIpcMessageV1(frame.ReqID, IpcCmdResponse, []byte(powType))
-						sendToClient(c, responseMsg)
+						responseMsg, _ := NewIpcMessageV1(frame.ReqID, IpcCmdResponse, []byte(powTypes))
+						channelSend <- responseMsg
 
 					case IpcCmdGetPowVersion:
 						logs.Log.Debug("Received Command GetPowVersion")
-						responseMsg, _ := NewIpcMessageV1(frame.ReqID, IpcCmdResponse, []byte(powVersion))
-						sendToClient(c, responseMsg)
+						responseMsg, _ := NewIpcMessageV1(frame.ReqID, IpcCmdResponse, []byte(powVersions))
+						channelSend <- responseMsg
 
 					case IpcCmdPowFunc:
 						logs.Log.Debug("Received Command PowFunc")
@@ -327,7 +366,7 @@ func HandleClientConnection(c net.Conn, config *viper.Viper, powType string, pow
 						if mwm > config.GetInt("pow.maxMinWeightMagnitude") {
 							logs.Log.Debugf("MinWeightMagnitude too high. MWM: %v Allowed: %v", mwm, config.GetInt("pow.maxMinWeightMagnitude"))
 							responseMsg, _ := NewIpcMessageV1(frame.ReqID, IpcCmdError, []byte(fmt.Sprintf("MinWeightMagnitude too high. MWM: %v Allowed: %v", mwm, config.GetInt("pow.maxMinWeightMagnitude"))))
-							sendToClient(c, responseMsg)
+							channelSend <- responseMsg
 							frameState = FrameStateSearchEnq
 							break
 						}
@@ -336,32 +375,20 @@ func HandleClientConnection(c net.Conn, config *viper.Viper, powType string, pow
 						if err != nil {
 							logs.Log.Debug(err.Error())
 							responseMsg, _ := NewIpcMessageV1(frame.ReqID, IpcCmdError, []byte(err.Error()))
-							sendToClient(c, responseMsg)
+							channelSend <- responseMsg
 							frameState = FrameStateSearchEnq
 							break
 						}
 
-						result, err := powFunc(trytes, mwm)
-						if err != nil {
-							logs.Log.Debug(err.Error())
-							responseMsg, _ := NewIpcMessageV1(frame.ReqID, IpcCmdError, []byte(err.Error()))
-							sendToClient(c, responseMsg)
-							frameState = FrameStateSearchEnq
-							break
-						} else {
-							responseMsg, err := NewIpcMessageV1(frame.ReqID, IpcCmdResponse, []byte(result))
-							if err != nil {
-								frameState = FrameStateSearchEnq
-								break
-							}
-							sendToClient(c, responseMsg)
-						}
+						powJob := PowJob{ReqID: frame.ReqID, Request: trytes, MWM: mwm}
+						powChannel <- &powJob
+						frameState = FrameStateSearchEnq
 
 					default:
 						// IpcCmdNotification, IpcCmdResponse, IpcCmdError
 						logs.Log.Debugf("Unknown command! Cmd: %X", frame.Command)
 						responseMsg, _ := NewIpcMessageV1(frame.ReqID, IpcCmdError, []byte(fmt.Sprintf("Unknown command! Cmd: %X", frame.Command)))
-						sendToClient(c, responseMsg)
+						channelSend <- responseMsg
 					}
 
 					// Search for the next message

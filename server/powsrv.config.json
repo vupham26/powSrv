@@ -1,18 +1,18 @@
 {
-  "fpga": {
-    "core": "pidiver1.1.rbf"
-  },
-  "log": {
-    "level": "DEBUG"
-  },
-  "pow": {
-    "maxminweightmagnitude": 20,
-    "type": "giota"
-  },
   "server": {
     "socketpath": "/tmp/powSrv.sock"
   },
-  "usb": {
-    "device": "/dev/ttyACM0"
+  "log": {
+    "level": "INFO"
+  },
+  "pow": {
+    "maxminweightmagnitude": 20,
+    "devices": [
+        { "type":"ftdiver" },
+        { "type":"powsrv", "network":"tcp", "address":"192.168.1.11:14300" },
+        { "type":"powsrv", "network":"tcp", "address":"192.168.1.11:14301" },
+        { "type":"powsrv", "network":"tcp", "address":"192.168.1.11:14302" },
+        { "type":"powsrv", "network":"tcp", "address":"192.168.1.11:14303" }
+    ]
   }
 }
